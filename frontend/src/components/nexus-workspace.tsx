@@ -1,0 +1,910 @@
+"use client";
+
+import {
+  DeleteOutlined,
+  KeyOutlined,
+  ReloadOutlined,
+  RobotOutlined,
+  SettingOutlined,
+  UserOutlined,
+} from "@ant-design/icons";
+import { Bubble, Conversations, Sender, XProvider } from "@ant-design/x";
+import {
+  App,
+  Avatar,
+  Button,
+  ConfigProvider,
+  Divider,
+  Empty,
+  Input,
+  Popover,
+  Popconfirm,
+  Select,
+  Space,
+  Tag,
+  Typography,
+} from "antd";
+import type React from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import styles from "./nexus-workspace.module.css";
+
+type ProviderOption = {
+  id: string;
+  name: string;
+  apiBaseUrl: string | null;
+  providerNpm: string | null;
+  envNames: string[];
+};
+
+type ModelOption = {
+  id: string;
+  name: string;
+  providerId: string;
+  providerName: string;
+  providerNpm: string | null;
+  apiBaseUrl: string | null;
+  contextLimit: number | null;
+  family: string | null;
+  toolCall: boolean;
+  status: string;
+};
+
+type Conversation = {
+  id: string;
+  title: string;
+  providerId: string;
+  modelId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ChatMessage = {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  status: "local" | "loading" | "updating" | "success" | "error" | "abort";
+  createdAt: string;
+};
+
+type BubbleItem = NonNullable<
+  React.ComponentProps<typeof Bubble.List>["items"]
+>[number];
+
+const bubbleRoles = {
+  assistant: {
+    placement: "start",
+    variant: "filled",
+    shape: "corner",
+    typing: { effect: "typing", step: 2, interval: 18, keepPrefix: true },
+  },
+  user: {
+    placement: "end",
+    variant: "filled",
+    shape: "corner",
+  },
+} satisfies React.ComponentProps<typeof Bubble.List>["role"];
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(
+  /\/$/,
+  "",
+);
+
+export function NexusWorkspace() {
+  return (
+    <ConfigProvider
+      theme={{
+        token: {
+          colorPrimary: "#2453d4",
+          colorInfo: "#08756f",
+          colorBgLayout: "#f7f8fa",
+          colorBorder: "#d9dee7",
+          borderRadius: 6,
+          fontFamily:
+            "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        },
+      }}
+    >
+      <App>
+        <XProvider>
+          <WorkspaceShell />
+        </XProvider>
+      </App>
+    </ConfigProvider>
+  );
+}
+
+function WorkspaceShell() {
+  const { message } = App.useApp();
+  const [providers, setProviders] = useState<ProviderOption[]>([]);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string>();
+  const [providerId, setProviderId] = useState<string>();
+  const [modelId, setModelId] = useState<string>();
+  const [apiKey, setApiKey] = useState("");
+  const [settingsProviderId, setSettingsProviderId] = useState<string>();
+  const [settingsModelId, setSettingsModelId] = useState<string>();
+  const [settingsApiKey, setSettingsApiKey] = useState("");
+  const [settingsModels, setSettingsModels] = useState<ModelOption[]>([]);
+  const [draft, setDraft] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [settingsModelsLoading, setSettingsModelsLoading] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const assistantMessageIdRef = useRef<string | null>(null);
+
+  const activeConversation = useMemo(
+    () =>
+      conversations.find(
+        (conversation) => conversation.id === activeConversationId,
+      ),
+    [activeConversationId, conversations],
+  );
+
+  const selectedProvider = providers.find(
+    (provider) => provider.id === providerId,
+  );
+  const selectedModel = models.find((model) => model.id === modelId);
+  const selectedSettingsProvider = providers.find(
+    (provider) => provider.id === settingsProviderId,
+  );
+  const selectedSettingsModel = settingsModels.find(
+    (model) => model.id === settingsModelId,
+  );
+
+  const loadProviders = useCallback(async () => {
+    setCatalogLoading(true);
+    try {
+      const data = await apiGet<{ providers: ProviderOption[] }>(
+        "/api/models/providers",
+      );
+      setProviders(data.providers);
+      setProviderId((current) => current ?? data.providers[0]?.id);
+    } catch (error) {
+      message.error(errorMessage(error));
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [message]);
+
+  const fetchModels = useCallback(async (nextProviderId: string) => {
+    const data = await apiGet<{ models: ModelOption[] }>(
+      `/api/models/providers/${encodeURIComponent(nextProviderId)}/models`,
+    );
+    return data.models;
+  }, []);
+
+  const loadModels = useCallback(async (nextProviderId: string) => {
+    const nextModels = await fetchModels(nextProviderId);
+    setModels(nextModels);
+    setModelId((current) => {
+      if (current && nextModels.some((model) => model.id === current)) {
+        return current;
+      }
+      return nextModels[0]?.id;
+    });
+  }, [fetchModels]);
+
+  const loadSettingsModels = useCallback(
+    async (nextProviderId: string, preferredModelId?: string) => {
+      setSettingsModelsLoading(true);
+      try {
+        const nextModels = await fetchModels(nextProviderId);
+        setSettingsModels(nextModels);
+        setSettingsModelId((current) => {
+          const candidate = preferredModelId ?? current;
+
+          if (candidate && nextModels.some((model) => model.id === candidate)) {
+            return candidate;
+          }
+
+          return nextModels[0]?.id;
+        });
+      } catch (error) {
+        message.error(errorMessage(error));
+      } finally {
+        setSettingsModelsLoading(false);
+      }
+    },
+    [fetchModels, message],
+  );
+
+  const loadConversations = useCallback(async () => {
+    const data = await apiGet<{ conversations: Conversation[] }>(
+      "/api/conversations",
+    );
+    setConversations(data.conversations);
+    setActiveConversationId((current) => current ?? data.conversations[0]?.id);
+  }, []);
+
+  const loadMessages = useCallback(async (conversationId: string) => {
+    const data = await apiGet<{ messages: ChatMessage[] }>(
+      `/api/conversations/${conversationId}/messages`,
+    );
+    setMessages(data.messages);
+  }, []);
+
+  useEffect(() => {
+    void loadProviders();
+    void loadConversations();
+  }, [loadConversations, loadProviders]);
+
+  useEffect(() => {
+    if (!providerId) {
+      return;
+    }
+
+    loadModels(providerId).catch((error) => message.error(errorMessage(error)));
+  }, [loadModels, message, providerId]);
+
+  useEffect(() => {
+    if (!activeConversationId) {
+      setMessages([]);
+      return;
+    }
+
+    loadMessages(activeConversationId).catch((error) =>
+      message.error(errorMessage(error)),
+    );
+  }, [activeConversationId, loadMessages, message]);
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      return;
+    }
+
+    setSettingsProviderId(providerId);
+    setSettingsModelId(modelId);
+    setSettingsApiKey(apiKey);
+
+    if (providerId) {
+      void loadSettingsModels(providerId, modelId);
+    } else {
+      setSettingsModels([]);
+    }
+  }, [apiKey, loadSettingsModels, modelId, providerId, settingsOpen]);
+
+  const createConversation = useCallback(async () => {
+    if (!providerId || !modelId) {
+      message.warning("先选择模型");
+      return undefined;
+    }
+
+    const data = await apiPost<{ conversation: Conversation }>(
+      "/api/conversations",
+      {
+        providerId,
+        modelId,
+      },
+    );
+
+    setConversations((current) => [data.conversation, ...current]);
+    setActiveConversationId(data.conversation.id);
+    setMessages([]);
+    return data.conversation;
+  }, [message, modelId, providerId]);
+
+  const ensureConversation = useCallback(async () => {
+    if (activeConversationId) {
+      return activeConversationId;
+    }
+
+    const conversation = await createConversation();
+    return conversation?.id;
+  }, [activeConversationId, createConversation]);
+
+  const deleteConversation = useCallback(
+    async (conversationId: string) => {
+      if (loading) {
+        message.warning("消息生成中，稍后删除");
+        return;
+      }
+
+      try {
+        await apiDelete(
+          `/api/conversations/${encodeURIComponent(conversationId)}`,
+        );
+        const nextConversations = conversations.filter(
+          (conversation) => conversation.id !== conversationId,
+        );
+
+        setConversations(nextConversations);
+
+        if (activeConversationId === conversationId) {
+          const nextActiveId = nextConversations[0]?.id;
+          setActiveConversationId(nextActiveId);
+
+          if (!nextActiveId) {
+            setMessages([]);
+          }
+        }
+
+        message.success("已删除对话");
+      } catch (error) {
+        message.error(errorMessage(error));
+      }
+    },
+    [activeConversationId, conversations, loading, message],
+  );
+
+  const applySettings = useCallback(() => {
+    if (!settingsProviderId || !settingsModelId) {
+      message.warning("先选择模型");
+      return;
+    }
+
+    setProviderId(settingsProviderId);
+    setModelId(settingsModelId);
+    setApiKey(settingsApiKey);
+
+    if (settingsModels.length > 0) {
+      setModels(settingsModels);
+    }
+
+    setSettingsOpen(false);
+    message.success("模型设置已更新");
+  }, [
+    message,
+    settingsApiKey,
+    settingsModelId,
+    settingsModels,
+    settingsProviderId,
+  ]);
+
+  const sendMessage = useCallback(
+    async (content: string) => {
+      const trimmed = content.trim();
+
+      if (!trimmed || loading) {
+        return;
+      }
+
+      if (!providerId || !modelId) {
+        message.warning("先选择模型");
+        return;
+      }
+
+      if (!apiKey.trim()) {
+        message.warning("请输入 API key");
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        const conversationId = await ensureConversation();
+
+        if (!conversationId) {
+          return;
+        }
+
+        const userMessage: ChatMessage = {
+          id: `local-user-${Date.now()}`,
+          conversationId,
+          role: "user",
+          content: trimmed,
+          status: "local",
+          createdAt: new Date().toISOString(),
+        };
+        const assistantMessage: ChatMessage = {
+          id: `local-assistant-${Date.now()}`,
+          conversationId,
+          role: "assistant",
+          content: "",
+          status: "updating",
+          createdAt: new Date().toISOString(),
+        };
+
+        assistantMessageIdRef.current = assistantMessage.id;
+        setMessages((current) => [...current, userMessage, assistantMessage]);
+        setDraft("");
+
+        const response = await fetch(
+          apiUrl(`/api/conversations/${conversationId}/messages/stream`),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              content: trimmed,
+              providerId,
+              modelId,
+              apiKey,
+            }),
+          },
+        );
+
+        if (!response.ok) {
+          const errorBody = (await response.json().catch(() => null)) as
+            | { error?: string }
+            | null;
+          throw new Error(errorBody?.error ?? "发送失败");
+        }
+
+        await readSse(response, {
+          onEvent(event, data) {
+            if (event === "message.delta") {
+              const delta = String(data.content ?? "");
+              setMessages((current) =>
+                current.map((item) =>
+                  item.id === assistantMessageIdRef.current
+                    ? {
+                        ...item,
+                        content: item.content + delta,
+                        status: "updating",
+                      }
+                    : item,
+                ),
+              );
+            }
+
+            if (event === "message.done") {
+              const saved = data.message as ChatMessage;
+              setMessages((current) =>
+                current.map((item) =>
+                  item.id === assistantMessageIdRef.current ? saved : item,
+                ),
+              );
+              void loadConversations();
+            }
+
+            if (event === "error") {
+              throw new Error(String(data.message ?? "模型调用失败"));
+            }
+          },
+        });
+      } catch (error) {
+        message.error(errorMessage(error));
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === assistantMessageIdRef.current
+              ? {
+                  ...item,
+                  status: "error",
+                  content: item.content || errorMessage(error),
+                }
+              : item,
+          ),
+        );
+      } finally {
+        setLoading(false);
+        assistantMessageIdRef.current = null;
+      }
+    },
+    [
+      apiKey,
+      ensureConversation,
+      loadConversations,
+      loading,
+      message,
+      modelId,
+      providerId,
+    ],
+  );
+
+  const conversationItems = conversations.map((conversation) => ({
+    key: conversation.id,
+    label: (
+      <div className={styles.conversationItem}>
+        <span className={styles.conversationTitle}>{conversation.title}</span>
+        <Popconfirm
+          title="删除对话"
+          description="删除后会同时移除历史消息。"
+          okText="删除"
+          cancelText="取消"
+          okButtonProps={{ danger: true }}
+          onConfirm={(event) => {
+            event?.stopPropagation();
+            void deleteConversation(conversation.id);
+          }}
+        >
+          <button
+            className={styles.conversationDelete}
+            type="button"
+            aria-label={`删除对话 ${conversation.title}`}
+            title="删除"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <DeleteOutlined />
+          </button>
+        </Popconfirm>
+      </div>
+    ),
+    group: groupConversation(conversation.updatedAt),
+  }));
+
+  const bubbleItems: BubbleItem[] = messages.map((item) => ({
+    key: item.id,
+    role: item.role === "assistant" ? "assistant" : "user",
+    content: item.content,
+    status: item.status,
+    streaming: item.status === "updating",
+    loading: item.status === "loading" || item.status === "updating",
+    header:
+      item.role === "assistant"
+        ? selectedModel?.name ?? activeConversation?.modelId
+        : "You",
+  }));
+
+  const runtimeMapped = isRuntimeMapped(selectedProvider, selectedModel);
+  const settingsRuntimeMapped = isRuntimeMapped(
+    selectedSettingsProvider,
+    selectedSettingsModel,
+  );
+  const settingsDirty =
+    settingsProviderId !== providerId ||
+    settingsModelId !== modelId ||
+    settingsApiKey !== apiKey;
+
+  const settingsContent = (
+    <div className={styles.settingsPanel}>
+      <div className={styles.settingsHeader}>
+        <div>
+          <Typography.Text className={styles.settingsTitle}>
+            模型设置
+          </Typography.Text>
+          <Typography.Text className={styles.settingsMeta}>
+            确认后对后续请求生效
+          </Typography.Text>
+        </div>
+        <Button
+          size="small"
+          icon={<ReloadOutlined />}
+          loading={catalogLoading}
+          onClick={() => {
+            void loadProviders();
+            if (settingsProviderId) {
+              void loadSettingsModels(settingsProviderId, settingsModelId);
+            }
+            if (activeConversationId) {
+              void loadMessages(activeConversationId);
+            }
+          }}
+        />
+      </div>
+
+      <Divider className={styles.settingsDivider} />
+
+      <label className={styles.settingsField}>
+        <span>Provider</span>
+        <Select
+          showSearch
+          className={styles.settingsSelect}
+          value={settingsProviderId}
+          loading={catalogLoading}
+          options={providers.map((provider) => ({
+            value: provider.id,
+            label: provider.name,
+            searchLabel: `${provider.name} ${provider.id}`,
+          }))}
+          onChange={(value) => {
+            setSettingsProviderId(value);
+            setSettingsModelId(undefined);
+            void loadSettingsModels(value);
+          }}
+          optionFilterProp="searchLabel"
+          placeholder="Provider"
+        />
+      </label>
+
+      <label className={styles.settingsField}>
+        <span>Model</span>
+        <Select
+          showSearch
+          className={styles.settingsSelect}
+          value={settingsModelId}
+          loading={settingsModelsLoading}
+          options={settingsModels.map((model) => ({
+            value: model.id,
+            label: model.name,
+            searchLabel: `${model.name} ${model.id} ${model.family ?? ""}`,
+          }))}
+          onChange={setSettingsModelId}
+          optionFilterProp="searchLabel"
+          placeholder="Model"
+        />
+      </label>
+
+      <label className={styles.settingsField}>
+        <span>API key</span>
+        <Input.Password
+          prefix={<KeyOutlined />}
+          value={settingsApiKey}
+          onChange={(event) => setSettingsApiKey(event.target.value)}
+          placeholder={selectedSettingsProvider?.envNames?.[0] ?? "API key"}
+          autoComplete="off"
+        />
+      </label>
+
+      <div className={styles.settingsTags}>
+        <Tag color={settingsRuntimeMapped ? "green" : "orange"}>
+          {settingsRuntimeMapped ? "LangChain 可调用" : "仅目录配置"}
+        </Tag>
+        {selectedSettingsModel ? (
+          <Tag color={selectedSettingsModel.toolCall ? "blue" : "default"}>
+            {selectedSettingsModel.toolCall ? "tool_call" : "no tool_call"}
+          </Tag>
+        ) : null}
+        {selectedSettingsModel?.status ? (
+          <Tag>{selectedSettingsModel.status}</Tag>
+        ) : null}
+        {settingsDirty ? <Tag color="gold">待确认</Tag> : null}
+      </div>
+
+      <div className={styles.settingsActions}>
+        <Button onClick={() => setSettingsOpen(false)}>取消</Button>
+        <Button
+          type="primary"
+          disabled={!settingsProviderId || !settingsModelId || !settingsDirty}
+          onClick={applySettings}
+        >
+          确认
+        </Button>
+      </div>
+    </div>
+  );
+
+  return (
+    <main className={styles.shell}>
+      <aside className={styles.sidebar}>
+        <div className={styles.brandBlock}>
+          <div className={styles.brandMark}>NX</div>
+          <div>
+            <Typography.Title level={1} className={styles.brandTitle}>
+              NexusAgent
+            </Typography.Title>
+            <Typography.Text className={styles.brandSub}>
+              DeepAgents workspace
+            </Typography.Text>
+          </div>
+        </div>
+
+        <Conversations
+          className={styles.conversationList}
+          items={conversationItems}
+          activeKey={activeConversationId}
+          onActiveChange={(key) => setActiveConversationId(key)}
+          groupable={{
+            label: (group) => group,
+          }}
+          creation={{
+            label: "新对话",
+            onClick: () =>
+              createConversation().catch((error) =>
+                message.error(errorMessage(error)),
+              ),
+          }}
+        />
+
+        <Popover
+          trigger="click"
+          placement="rightBottom"
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          content={settingsContent}
+        >
+          <button className={styles.profileButton} type="button">
+            <Avatar icon={<UserOutlined />} className={styles.profileAvatar} />
+            <div className={styles.profileText}>
+              <span>{selectedProvider?.name ?? "Provider"}</span>
+              <small>{selectedModel?.name ?? modelId ?? "Model"}</small>
+            </div>
+            <SettingOutlined className={styles.profileIcon} />
+          </button>
+        </Popover>
+      </aside>
+
+      <section className={styles.workspace}>
+        <header className={styles.toolbar}>
+          <div className={styles.sessionTitle}>
+            <RobotOutlined />
+            <div>
+              <Typography.Title level={2} className={styles.chatTitle}>
+                {activeConversation?.title ?? "新对话"}
+              </Typography.Title>
+              <Typography.Text className={styles.chatMeta}>
+                {selectedProvider?.name ?? "Provider"} ·{" "}
+                {selectedModel?.name ?? "Model"}
+              </Typography.Text>
+            </div>
+          </div>
+
+          <Space wrap className={styles.toolbarStatus}>
+            <Tag color={runtimeMapped ? "green" : "orange"}>
+              {runtimeMapped ? "runtime" : "catalog"}
+            </Tag>
+            {selectedModel?.contextLimit ? (
+              <Tag color="gold">
+                {Intl.NumberFormat("en", { notation: "compact" }).format(
+                  selectedModel.contextLimit,
+                )}{" "}
+                ctx
+              </Tag>
+            ) : null}
+          </Space>
+        </header>
+
+        <div className={styles.modelRail}>
+          <Tag color="blue">{providerId ?? "provider"}</Tag>
+          <Tag color="cyan">{modelId ?? "model"}</Tag>
+          {selectedModel?.contextLimit ? (
+            <Tag color="gold">
+              {Intl.NumberFormat("en", { notation: "compact" }).format(
+                selectedModel.contextLimit,
+              )}{" "}
+              ctx
+            </Tag>
+          ) : null}
+        </div>
+
+        <div className={styles.messages}>
+          {bubbleItems.length > 0 ? (
+            <Bubble.List
+              className={styles.bubbleList}
+              items={bubbleItems}
+              role={bubbleRoles}
+              autoScroll
+            />
+          ) : (
+            <Empty
+              className={styles.empty}
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description="选择模型后开始对话"
+            />
+          )}
+        </div>
+
+        <div className={styles.senderBar}>
+          <div className={styles.composerShell}>
+            <Sender
+              className={styles.sender}
+              value={draft}
+              loading={loading}
+              disabled={!providerId || !modelId}
+              placeholder="输入消息，按 Enter 发送"
+              autoSize={{ minRows: 2, maxRows: 5 }}
+              submitType="enter"
+              onChange={(value) => setDraft(value)}
+              onSubmit={(value) => void sendMessage(value)}
+            />
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+async function apiGet<T>(url: string): Promise<T> {
+  const response = await fetch(apiUrl(url));
+  return parseJsonResponse<T>(response);
+}
+
+async function apiPost<T>(url: string, body: unknown): Promise<T> {
+  const response = await fetch(apiUrl(url), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return parseJsonResponse<T>(response);
+}
+
+async function apiDelete(url: string): Promise<void> {
+  const response = await fetch(apiUrl(url), {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | null;
+    throw new Error(payload?.error ?? `HTTP ${response.status}`);
+  }
+}
+
+async function parseJsonResponse<T>(response: Response): Promise<T> {
+  const payload = (await response.json().catch(() => null)) as
+    | (T & { error?: string })
+    | null;
+
+  if (!response.ok) {
+    throw new Error(payload?.error ?? `HTTP ${response.status}`);
+  }
+
+  return payload as T;
+}
+
+function apiUrl(path: string): string {
+  return `${API_BASE_URL}${path}`;
+}
+
+async function readSse(
+  response: Response,
+  options: {
+    onEvent: (event: string, data: Record<string, unknown>) => void;
+  },
+) {
+  const reader = response.body?.getReader();
+
+  if (!reader) {
+    throw new Error("当前浏览器不支持流式响应");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+
+    for (const frame of frames) {
+      const parsed = parseSseFrame(frame);
+
+      if (parsed) {
+        options.onEvent(parsed.event, parsed.data);
+      }
+    }
+  }
+}
+
+function parseSseFrame(frame: string) {
+  const event = frame
+    .split("\n")
+    .find((line) => line.startsWith("event: "))
+    ?.slice("event: ".length);
+  const dataLine = frame
+    .split("\n")
+    .find((line) => line.startsWith("data: "))
+    ?.slice("data: ".length);
+
+  if (!event || !dataLine) {
+    return null;
+  }
+
+  return {
+    event,
+    data: JSON.parse(dataLine) as Record<string, unknown>,
+  };
+}
+
+function groupConversation(updatedAt: string): string {
+  const now = new Date();
+  const updated = new Date(updatedAt);
+
+  if (updated.toDateString() === now.toDateString()) {
+    return "今天";
+  }
+
+  return "更早";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "操作失败";
+}
+
+function isRuntimeMapped(
+  provider: ProviderOption | undefined,
+  model: ModelOption | undefined,
+): boolean {
+  const providerNpm = model?.providerNpm ?? provider?.providerNpm;
+
+  return (
+    provider?.id === "openai" ||
+    provider?.id === "openrouter" ||
+    provider?.id === "anthropic" ||
+    provider?.id === "google" ||
+    providerNpm === "@ai-sdk/openai" ||
+    providerNpm === "@ai-sdk/openai-compatible" ||
+    providerNpm === "@openrouter/ai-sdk-provider" ||
+    providerNpm === "@ai-sdk/anthropic" ||
+    providerNpm === "@ai-sdk/google"
+  );
+}

@@ -1,0 +1,358 @@
+.shell {
+  display: grid;
+  grid-template-columns: 296px minmax(0, 1fr);
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(36, 83, 212, 0.08), transparent 26%),
+    var(--background);
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+  background: #fbfcfe;
+  padding: 18px 14px;
+}
+
+.brandBlock {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 4px 18px;
+}
+
+.brandMark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  color: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--cobalt), var(--teal));
+  border-radius: 6px;
+}
+
+.brandTitle {
+  margin: 0 !important;
+  font-size: 18px !important;
+  line-height: 22px !important;
+}
+
+.brandSub,
+.chatMeta {
+  color: var(--ink-soft) !important;
+  font-size: 12px;
+}
+
+.conversationList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.conversationList::-webkit-scrollbar,
+.conversationList *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.conversationList * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.conversationItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.conversationTitle {
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversationDelete {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--ink-soft);
+  opacity: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.conversationItem:hover .conversationDelete,
+.conversationDelete:focus-visible {
+  opacity: 1;
+}
+
+.conversationDelete:hover {
+  color: #b42318;
+  background: rgba(180, 35, 24, 0.08);
+}
+
+.profileButton {
+  display: grid;
+  flex-shrink: 0;
+  grid-template-columns: 36px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 14px;
+  padding: 8px;
+  color: var(--foreground);
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.profileButton:hover {
+  border-color: rgba(36, 83, 212, 0.42);
+  background: #f6f8fc;
+}
+
+.profileAvatar {
+  background: linear-gradient(135deg, var(--teal), var(--cobalt));
+}
+
+.profileText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.profileText span,
+.profileText small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profileText span {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.profileText small {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.profileIcon {
+  color: var(--ink-soft);
+}
+
+.settingsPanel {
+  width: min(360px, calc(100vw - 42px));
+}
+
+.settingsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settingsTitle {
+  display: block;
+  color: var(--foreground) !important;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.settingsMeta {
+  display: block;
+  color: var(--ink-soft) !important;
+  font-size: 12px;
+}
+
+.settingsDivider {
+  margin: 10px 0 12px !important;
+}
+
+.settingsField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.settingsSelect {
+  width: 100%;
+}
+
+.settingsTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.settingsActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.workspace {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 22px 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(14px);
+}
+
+.sessionTitle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 220px;
+}
+
+.chatTitle {
+  margin: 0 !important;
+  font-size: 17px !important;
+  line-height: 22px !important;
+}
+
+.toolbarStatus {
+  justify-content: flex-end;
+}
+
+.modelRail {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 7px 22px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-muted);
+}
+
+.messages {
+  min-height: 0;
+  padding: 18px 22px 12px;
+  overflow: hidden;
+}
+
+.bubbleList {
+  height: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+}
+
+.senderBar {
+  flex-shrink: 0;
+  padding: 14px 24px 22px;
+  background: linear-gradient(
+    180deg,
+    rgba(247, 248, 250, 0.64),
+    rgba(247, 248, 250, 0.98) 34%
+  );
+}
+
+.composerShell {
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+
+.sender {
+  min-height: 66px;
+  border-color: rgba(20, 32, 54, 0.12) !important;
+  border-radius: 24px !important;
+  box-shadow:
+    0 12px 28px rgba(20, 32, 54, 0.08),
+    0 2px 8px rgba(20, 32, 54, 0.05) !important;
+}
+
+.sender :global(textarea) {
+  line-height: 22px !important;
+}
+
+@media (max-width: 980px) {
+  .shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 240px) minmax(0, 1fr);
+  }
+
+  .sidebar {
+    height: 100%;
+    min-height: auto;
+    max-height: 240px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .workspace {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .toolbarStatus {
+    width: 100%;
+  }
+}

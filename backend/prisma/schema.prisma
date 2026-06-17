@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model Conversation {
+  id         String    @id @default(cuid())
+  title      String    @db.VarChar(160)
+  providerId String    @db.VarChar(80)
+  modelId    String    @db.VarChar(200)
+  messages   Message[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([updatedAt])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String       @db.VarChar(191)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           MessageRole
+  content        String        @db.LongText
+  status         MessageStatus @default(success)
+  metadataJson   Json?
+  createdAt      DateTime      @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+enum MessageStatus {
+  local
+  loading
+  updating
+  success
+  error
+  abort
+}
+
+model ModelProviderCache {
+  providerId String   @id @db.VarChar(80)
+  name       String   @db.VarChar(160)
+  apiBaseUrl String?  @db.VarChar(500)
+  envNames   Json
+  rawJson    Json
+  updatedAt  DateTime @updatedAt
+}
+
+model ModelCache {
+  id           String   @id @default(cuid())
+  providerId   String   @db.VarChar(80)
+  modelId      String   @db.VarChar(200)
+  name         String   @db.VarChar(200)
+  family       String?  @db.VarChar(80)
+  toolCall     Boolean  @default(false)
+  contextLimit Int?
+  status       String   @default("active") @db.VarChar(40)
+  rawJson      Json
+  updatedAt    DateTime @updatedAt
+
+  @@unique([providerId, modelId])
+  @@index([providerId])
+}
