@@ -145,4 +145,27 @@ describe("NexusWorkspace behavior contract", () => {
       "skill traces should be visible as skill-call rows",
     );
   });
+
+  it("keeps assistant bubble content string-based so typing animation can run", () => {
+    assert.match(
+      source,
+      /content:\s*item\.content,/,
+      "Bubble content should stay as the message string for Ant Design X typing",
+    );
+    assert.doesNotMatch(
+      source,
+      /content:\s*item\.role === "assistant"\s*\?\s*\(\s*<AssistantMessageContent/s,
+      "assistant content should not be replaced with a React node before Bubble typing runs",
+    );
+    assert.match(
+      source,
+      /loading:\s*item\.status === "loading"/,
+      "streaming messages should not be hidden behind Bubble loading",
+    );
+    assert.doesNotMatch(
+      source,
+      /loading:\s*item\.status === "loading"\s*\|\|\s*item\.status === "updating"/,
+      "updating messages should keep rendering streamed text and traces",
+    );
+  });
 });

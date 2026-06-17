@@ -94,6 +94,81 @@ describe("AgentRunnerService title generation", () => {
     });
   });
 
+  it("streams reasoning traces from standard content-block events", async () => {
+    let persistedMetadata: unknown;
+    const modelFactory = (() => ({})) as unknown as ChatModelFactory;
+    const agentFactory = (() => ({
+      streamEvents: async () => ({
+        messages: asyncIterable([
+          {
+            text: asyncIterable(["正文"]),
+            [Symbol.asyncIterator]: async function* () {
+              yield { event: "message-start" };
+              yield {
+                event: "content-block-start",
+                index: 0,
+                content: { type: "reasoning", reasoning: "" },
+              };
+              yield {
+                event: "content-block-delta",
+                index: 0,
+                delta: {
+                  type: "reasoning-delta",
+                  reasoning: "先判断上下文",
+                },
+              };
+              yield {
+                event: "content-block-finish",
+                index: 0,
+                content: {
+                  type: "reasoning",
+                  reasoning: "先判断上下文",
+                },
+              };
+              yield { event: "message-finish" };
+            },
+          },
+        ]),
+        toolCalls: asyncIterable([]),
+        subagents: asyncIterable([]),
+      }),
+    })) as unknown as ConstructorParameters<typeof AgentRunnerService>[1];
+    const service = new AgentRunnerService(modelFactory, agentFactory);
+
+    const stream = service.createResponseStream({
+      providerId: "openai",
+      modelId: "gpt-5.2",
+      apiKey: "sk-test",
+      modelInfo: null,
+      messages: [],
+      onDone: async (content, metadataJson) => {
+        persistedMetadata = metadataJson;
+        return {
+          id: "msg_1",
+          conversationId: "conv_1",
+          role: "assistant",
+          content,
+          status: "success",
+          metadataJson,
+          createdAt: new Date("2026-06-17T00:00:00.000Z"),
+        };
+      },
+    });
+
+    const body = await readStream(stream);
+
+    expect(body).toContain("event: reasoning.delta");
+    expect(persistedMetadata).toMatchObject({
+      traces: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "reasoning",
+          status: "success",
+          content: "先判断上下文",
+        }),
+      ]),
+    });
+  });
+
   it("asks the active chat model to generate a concise conversation title", async () => {
     const capturedMessages: unknown[] = [];
     const modelFactory = (() => ({

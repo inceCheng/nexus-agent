@@ -257,11 +257,14 @@ type TraceUpdate = Omit<AgentTraceEntry, "createdAt" | "updatedAt"> &
 
 type TraceUpdater = (event: string, trace: TraceUpdate) => void;
 
+type StreamMessage = {
+  text: AsyncIterable<string>;
+  reasoning?: AsyncIterable<string>;
+  [Symbol.asyncIterator]?: () => AsyncIterator<unknown>;
+};
+
 async function consumeMessageStreams(
-  messages: AsyncIterable<{
-    text: AsyncIterable<string>;
-    reasoning?: AsyncIterable<string>;
-  }>,
+  messages: AsyncIterable<StreamMessage>,
   options: {
     appendContent: (token: string) => void;
     updateTrace: TraceUpdater;
@@ -272,6 +275,8 @@ async function consumeMessageStreams(
   for await (const message of messages) {
     const reasoningId = `reasoning_${reasoningIndex++}`;
     let reasoningContent = "";
+    const reasoningStream =
+      message.reasoning ?? rawReasoningStreamFromMessage(message);
 
     await Promise.all([
       (async () => {
@@ -280,12 +285,18 @@ async function consumeMessageStreams(
         }
       })(),
       (async () => {
-        if (!message.reasoning) {
+        if (!reasoningStream) {
           return;
         }
 
-        for await (const token of message.reasoning) {
-          reasoningContent += token;
+        for await (const token of reasoningStream) {
+          const delta = normalizeReasoningDelta(reasoningContent, token);
+
+          if (!delta) {
+            continue;
+          }
+
+          reasoningContent += delta;
           options.updateTrace("reasoning.delta", {
             id: reasoningId,
             kind: "reasoning",
@@ -307,6 +318,105 @@ async function consumeMessageStreams(
       })(),
     ]);
   }
+}
+
+function rawReasoningStreamFromMessage(
+  message: StreamMessage,
+): AsyncIterable<string> | undefined {
+  if (!isAsyncIterable(message)) {
+    return undefined;
+  }
+
+  return {
+    async *[Symbol.asyncIterator]() {
+      for await (const event of message) {
+        const reasoning = extractReasoningFromStreamEvent(event);
+
+        if (reasoning) {
+          yield reasoning;
+        }
+      }
+    },
+  };
+}
+
+function normalizeReasoningDelta(
+  currentContent: string,
+  nextContent: string,
+): string {
+  if (!nextContent) {
+    return "";
+  }
+
+  if (nextContent.startsWith(currentContent)) {
+    return nextContent.slice(currentContent.length);
+  }
+
+  return nextContent;
+}
+
+function extractReasoningFromStreamEvent(event: unknown): string | undefined {
+  if (!event || typeof event !== "object") {
+    return undefined;
+  }
+
+  const record = event as Record<string, unknown>;
+
+  if (record.event === "content-block-delta") {
+    return extractReasoningFromContentBlock(record.delta ?? record.content);
+  }
+
+  if (
+    record.event === "content-block-start" ||
+    record.event === "content-block-finish"
+  ) {
+    return extractReasoningFromContentBlock(record.content);
+  }
+
+  return undefined;
+}
+
+function extractReasoningFromContentBlock(block: unknown): string | undefined {
+  if (!block || typeof block !== "object") {
+    return undefined;
+  }
+
+  const record = block as Record<string, unknown>;
+
+  if (
+    record.type === "reasoning-delta" &&
+    typeof record.reasoning === "string"
+  ) {
+    return record.reasoning;
+  }
+
+  if (
+    (record.type === "reasoning" || record.type === "thinking") &&
+    typeof record.reasoning === "string"
+  ) {
+    return record.reasoning;
+  }
+
+  if (record.type === "thinking" && typeof record.thinking === "string") {
+    return record.thinking;
+  }
+
+  if (record.type === "block-delta") {
+    return extractReasoningFromContentBlock(record.fields);
+  }
+
+  return undefined;
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    Symbol.asyncIterator in value &&
+    typeof (value as { [Symbol.asyncIterator]?: unknown })[
+      Symbol.asyncIterator
+    ] === "function"
+  );
 }
 
 async function consumeToolCalls(

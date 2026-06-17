@@ -687,23 +687,24 @@ function WorkspaceShell() {
   const bubbleItems: BubbleItem[] = messages.map((item) => ({
     key: item.id,
     role: item.role === "assistant" ? "assistant" : "user",
-    content:
+    content: item.content,
+    classNames:
+      item.role === "assistant"
+        ? { content: styles.assistantText }
+        : undefined,
+    status: item.status,
+    streaming: item.status === "updating",
+    loading: item.status === "loading",
+    header:
       item.role === "assistant" ? (
-        <AssistantMessageContent
-          content={item.content}
+        <AssistantMessageHeader
+          title={selectedModel?.name ?? activeConversation?.modelId ?? "Assistant"}
           traces={traceTimeline(item.metadataJson)}
           streaming={item.status === "updating"}
         />
       ) : (
-        item.content
+        "You"
       ),
-    status: item.status,
-    streaming: item.status === "updating",
-    loading: item.status === "loading" || item.status === "updating",
-    header:
-      item.role === "assistant"
-        ? selectedModel?.name ?? activeConversation?.modelId
-        : "You",
   }));
 
   const runtimeMapped = isRuntimeMapped(selectedProvider, selectedModel);
@@ -1008,19 +1009,19 @@ function WorkspaceShell() {
   );
 }
 
-function AssistantMessageContent({
-  content,
+function AssistantMessageHeader({
+  title,
   traces,
   streaming,
 }: {
-  content: string;
+  title: string;
   traces: AgentTraceEntry[];
   streaming: boolean;
 }) {
   return (
-    <div className={styles.assistantMessage}>
+    <div className={styles.assistantHeader}>
+      <span className={styles.assistantHeaderLabel}>{title}</span>
       <TraceTimeline traces={traces} streaming={streaming} />
-      {content ? <div className={styles.assistantText}>{content}</div> : null}
     </div>
   );
 }

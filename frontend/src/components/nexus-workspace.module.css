@@ -369,11 +369,20 @@
   padding-right: 4px;
 }
 
-.assistantMessage {
+.assistantHeader {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
+}
+
+.assistantHeaderLabel {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .assistantText {
