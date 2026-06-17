@@ -1,7 +1,10 @@
 "use client";
 
 import {
+  CheckOutlined,
+  CloseOutlined,
   DeleteOutlined,
+  EditOutlined,
   KeyOutlined,
   ReloadOutlined,
   RobotOutlined,
@@ -134,6 +137,10 @@ function WorkspaceShell() {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [settingsModelsLoading, setSettingsModelsLoading] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [renamingConversationId, setRenamingConversationId] =
+    useState<string>();
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const assistantMessageIdRef = useRef<string | null>(null);
 
   const activeConversation = useMemo(
@@ -225,6 +232,18 @@ function WorkspaceShell() {
       `/api/conversations/${conversationId}/messages`,
     );
     setMessages(data.messages);
+  }, []);
+
+  const updateConversationState = useCallback((conversation: Conversation) => {
+    setConversations((current) => {
+      if (current.some((item) => item.id === conversation.id)) {
+        return current.map((item) =>
+          item.id === conversation.id ? conversation : item,
+        );
+      }
+
+      return [conversation, ...current];
+    });
   }, []);
 
   useEffect(() => {
@@ -328,6 +347,44 @@ function WorkspaceShell() {
       }
     },
     [activeConversationId, conversations, loading, message],
+  );
+
+  const beginRenameConversation = useCallback((conversation: Conversation) => {
+    setRenamingConversationId(conversation.id);
+    setRenameDraft(conversation.title);
+  }, []);
+
+  const cancelRenameConversation = useCallback(() => {
+    setRenamingConversationId(undefined);
+    setRenameDraft("");
+  }, []);
+
+  const renameConversation = useCallback(
+    async (conversationId: string) => {
+      const title = renameDraft.trim();
+
+      if (!title) {
+        message.warning("请输入会话标题");
+        return;
+      }
+
+      setRenaming(true);
+
+      try {
+        const data = await apiPatch<{ conversation: Conversation }>(
+          `/api/conversations/${encodeURIComponent(conversationId)}`,
+          { title },
+        );
+        updateConversationState(data.conversation);
+        cancelRenameConversation();
+        message.success("已重命名对话");
+      } catch (error) {
+        message.error(errorMessage(error));
+      } finally {
+        setRenaming(false);
+      }
+    },
+    [cancelRenameConversation, message, renameDraft, updateConversationState],
   );
 
   const applySettings = useCallback(() => {
@@ -450,6 +507,10 @@ function WorkspaceShell() {
               void loadConversations();
             }
 
+            if (event === "conversation.updated") {
+              updateConversationState(data.conversation as Conversation);
+            }
+
             if (event === "error") {
               throw new Error(String(data.message ?? "模型调用失败"));
             }
@@ -481,36 +542,103 @@ function WorkspaceShell() {
       message,
       modelId,
       providerId,
+      updateConversationState,
     ],
   );
 
   const conversationItems = conversations.map((conversation) => ({
     key: conversation.id,
     label: (
-      <div className={styles.conversationItem}>
-        <span className={styles.conversationTitle}>{conversation.title}</span>
-        <Popconfirm
-          title="删除对话"
-          description="删除后会同时移除历史消息。"
-          okText="删除"
-          cancelText="取消"
-          okButtonProps={{ danger: true }}
-          onConfirm={(event) => {
-            event?.stopPropagation();
-            void deleteConversation(conversation.id);
-          }}
+      renamingConversationId === conversation.id ? (
+        <div
+          className={styles.conversationRename}
+          onClick={(event) => event.stopPropagation()}
         >
-          <button
-            className={styles.conversationDelete}
-            type="button"
-            aria-label={`删除对话 ${conversation.title}`}
-            title="删除"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <DeleteOutlined />
-          </button>
-        </Popconfirm>
-      </div>
+          <Input
+            size="small"
+            className={styles.conversationRenameInput}
+            value={renameDraft}
+            autoFocus
+            disabled={renaming}
+            onChange={(event) => setRenameDraft(event.target.value)}
+            onPressEnter={() => void renameConversation(conversation.id)}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+
+              if (event.key === "Escape") {
+                cancelRenameConversation();
+              }
+            }}
+          />
+          <div className={styles.conversationRenameActions}>
+            <button
+              className={styles.conversationRenameButton}
+              type="button"
+              aria-label="保存会话标题"
+              title="保存"
+              disabled={renaming}
+              onClick={(event) => {
+                event.stopPropagation();
+                void renameConversation(conversation.id);
+              }}
+            >
+              <CheckOutlined />
+            </button>
+            <button
+              className={styles.conversationRenameButton}
+              type="button"
+              aria-label="取消重命名"
+              title="取消"
+              disabled={renaming}
+              onClick={(event) => {
+                event.stopPropagation();
+                cancelRenameConversation();
+              }}
+            >
+              <CloseOutlined />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className={styles.conversationItem}>
+          <span className={styles.conversationTitle}>{conversation.title}</span>
+          <div className={styles.conversationActions}>
+            <button
+              className={styles.conversationEdit}
+              type="button"
+              aria-label={`重命名对话 ${conversation.title}`}
+              title="重命名"
+              onClick={(event) => {
+                event.stopPropagation();
+                beginRenameConversation(conversation);
+              }}
+            >
+              <EditOutlined />
+            </button>
+            <Popconfirm
+              title="删除对话"
+              description="删除后会同时移除历史消息。"
+              okText="删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              onConfirm={(event) => {
+                event?.stopPropagation();
+                void deleteConversation(conversation.id);
+              }}
+            >
+              <button
+                className={styles.conversationDelete}
+                type="button"
+                aria-label={`删除对话 ${conversation.title}`}
+                title="删除"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <DeleteOutlined />
+              </button>
+            </Popconfirm>
+          </div>
+        </div>
+      )
     ),
     group: groupConversation(conversation.updatedAt),
   }));
@@ -700,10 +828,64 @@ function WorkspaceShell() {
         <header className={styles.toolbar}>
           <div className={styles.sessionTitle}>
             <RobotOutlined />
-            <div>
-              <Typography.Title level={2} className={styles.chatTitle}>
-                {activeConversation?.title ?? "新对话"}
-              </Typography.Title>
+            <div className={styles.titleBlock}>
+              {activeConversation &&
+              renamingConversationId === activeConversation.id ? (
+                <div className={styles.titleRename}>
+                  <Input
+                    className={styles.titleRenameInput}
+                    value={renameDraft}
+                    autoFocus
+                    disabled={renaming}
+                    onChange={(event) => setRenameDraft(event.target.value)}
+                    onPressEnter={() =>
+                      void renameConversation(activeConversation.id)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        cancelRenameConversation();
+                      }
+                    }}
+                  />
+                  <button
+                    className={styles.titleRenameButton}
+                    type="button"
+                    aria-label="保存会话标题"
+                    title="保存"
+                    disabled={renaming}
+                    onClick={() => void renameConversation(activeConversation.id)}
+                  >
+                    <CheckOutlined />
+                  </button>
+                  <button
+                    className={styles.titleRenameButton}
+                    type="button"
+                    aria-label="取消重命名"
+                    title="取消"
+                    disabled={renaming}
+                    onClick={cancelRenameConversation}
+                  >
+                    <CloseOutlined />
+                  </button>
+                </div>
+              ) : (
+                <div className={styles.titleRow}>
+                  <Typography.Title level={2} className={styles.chatTitle}>
+                    {activeConversation?.title ?? "新对话"}
+                  </Typography.Title>
+                  {activeConversation ? (
+                    <button
+                      className={styles.titleEditButton}
+                      type="button"
+                      aria-label="重命名当前会话"
+                      title="重命名"
+                      onClick={() => beginRenameConversation(activeConversation)}
+                    >
+                      <EditOutlined />
+                    </button>
+                  ) : null}
+                </div>
+              )}
               <Typography.Text className={styles.chatMeta}>
                 {selectedProvider?.name ?? "Provider"} ·{" "}
                 {selectedModel?.name ?? "Model"}
@@ -784,6 +966,15 @@ async function apiGet<T>(url: string): Promise<T> {
 async function apiPost<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(apiUrl(url), {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return parseJsonResponse<T>(response);
+}
+
+async function apiPatch<T>(url: string, body: unknown): Promise<T> {
+  const response = await fetch(apiUrl(url), {
+    method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });

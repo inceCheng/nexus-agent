@@ -76,7 +76,7 @@
 
 .conversationItem {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   width: 100%;
@@ -90,13 +90,31 @@
   white-space: nowrap;
 }
 
-.conversationDelete {
+.conversationActions,
+.conversationRenameActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.conversationActions {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.conversationItem:hover .conversationActions,
+.conversationActions:focus-within {
+  opacity: 1;
+}
+
+.conversationEdit,
+.conversationDelete,
+.conversationRenameButton {
   display: grid;
   place-items: center;
   width: 24px;
   height: 24px;
   color: var(--ink-soft);
-  opacity: 0;
   background: transparent;
   border: 0;
   border-radius: 5px;
@@ -107,14 +125,28 @@
     background 0.15s ease;
 }
 
-.conversationItem:hover .conversationDelete,
-.conversationDelete:focus-visible {
-  opacity: 1;
+.conversationEdit:hover,
+.conversationRenameButton:hover {
+  color: var(--cobalt);
+  background: rgba(36, 83, 212, 0.08);
 }
 
 .conversationDelete:hover {
   color: #b42318;
   background: rgba(180, 35, 24, 0.08);
+}
+
+.conversationRename {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+}
+
+.conversationRenameInput {
+  min-width: 0;
 }
 
 .profileButton {
@@ -258,10 +290,53 @@
   min-width: 220px;
 }
 
+.titleBlock {
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .chatTitle {
   margin: 0 !important;
   font-size: 17px !important;
   line-height: 22px !important;
+}
+
+.titleEditButton,
+.titleRenameButton {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.titleEditButton:hover,
+.titleRenameButton:hover {
+  color: var(--cobalt);
+  background: rgba(36, 83, 212, 0.08);
+}
+
+.titleRename {
+  display: grid;
+  grid-template-columns: minmax(180px, 360px) 26px 26px;
+  align-items: center;
+  gap: 6px;
+  max-width: min(460px, calc(100vw - 420px));
+}
+
+.titleRenameInput {
+  min-width: 0;
 }
 
 .toolbarStatus {

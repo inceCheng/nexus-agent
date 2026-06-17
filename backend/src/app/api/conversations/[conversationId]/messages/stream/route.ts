@@ -5,6 +5,7 @@ import {
   conversationService,
   modelCatalogService,
 } from "@/server/application";
+import { DEFAULT_CONVERSATION_TITLE } from "@/server/modules/conversation/conversation.service";
 import { BadRequestError } from "@/server/shared/errors";
 import { handleRoute } from "@/server/shared/route";
 
@@ -37,6 +38,11 @@ export async function POST(
     });
 
     const messages = await conversationService.listMessages(conversationId);
+    const conversations = await conversationService.listConversations();
+    const conversation = conversations.find((item) => item.id === conversationId);
+    const shouldAutoTitle =
+      conversation?.title === DEFAULT_CONVERSATION_TITLE &&
+      messages.filter((message) => message.role === "user").length === 1;
     const modelInfo = await modelCatalogService.findModel(
       parsed.data.providerId,
       parsed.data.modelId,
@@ -54,6 +60,37 @@ export async function POST(
           role: "assistant",
           content: content || "(empty response)",
         }),
+      onAfterDone: async (assistantContent) => {
+        if (!shouldAutoTitle) {
+          return null;
+        }
+
+        try {
+          const latestConversation = (
+            await conversationService.listConversations()
+          ).find((item) => item.id === conversationId);
+
+          if (latestConversation?.title !== DEFAULT_CONVERSATION_TITLE) {
+            return null;
+          }
+
+          const title = await agentRunnerService.generateConversationTitle({
+            providerId: parsed.data.providerId,
+            modelId: parsed.data.modelId,
+            apiKey: parsed.data.apiKey,
+            modelInfo,
+            userContent: parsed.data.content,
+            assistantContent,
+          });
+
+          return conversationService.renameConversation(conversationId, {
+            title,
+          });
+        } catch (error) {
+          console.error("Failed to generate conversation title", error);
+          return null;
+        }
+      },
     });
 
     return new Response(stream, {

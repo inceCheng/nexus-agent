@@ -74,4 +74,32 @@ describe("NexusWorkspace behavior contract", () => {
       "provider select should not directly mutate the active provider",
     );
   });
+
+  it("supports renaming conversations from the sidebar and title bar", () => {
+    assert.match(
+      source,
+      /EditOutlined/,
+      "conversation rename should expose edit affordances",
+    );
+    assert.match(
+      source,
+      /renameConversation/,
+      "conversation rename should be handled by a dedicated function",
+    );
+    assert.match(
+      source,
+      /method:\s*"PATCH"/,
+      "conversation rename should call the PATCH conversation API",
+    );
+    assert.match(
+      source,
+      /conversation\.updated/,
+      "streamed auto-title updates should update the conversation list",
+    );
+    assert.match(
+      source,
+      /titleRename/,
+      "chat title should support an inline rename state",
+    );
+  });
 });

@@ -36,6 +36,13 @@ export class PrismaConversationRepository implements ConversationRepository {
     });
   }
 
+  async updateTitle(id: string, title: string): Promise<ConversationDto> {
+    return prisma.conversation.update({
+      where: { id },
+      data: { title },
+    });
+  }
+
   async delete(id: string): Promise<void> {
     await prisma.conversation.deleteMany({
       where: { id },

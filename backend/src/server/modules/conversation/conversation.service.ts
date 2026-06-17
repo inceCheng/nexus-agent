@@ -9,6 +9,10 @@ import type {
   MessageStatus,
 } from "./conversation.repository";
 
+export const DEFAULT_CONVERSATION_TITLE = "新对话";
+
+const maxConversationTitleLength = 60;
+
 export class ConversationService {
   constructor(
     private readonly conversationRepository: ConversationRepository,
@@ -36,7 +40,7 @@ export class ConversationService {
     }
 
     return this.conversationRepository.create({
-      title: input.title?.trim() || "新对话",
+      title: input.title?.trim() || DEFAULT_CONVERSATION_TITLE,
       providerId,
       modelId,
     });
@@ -50,6 +54,27 @@ export class ConversationService {
     }
 
     return this.conversationRepository.delete(id);
+  }
+
+  async renameConversation(
+    conversationId: string,
+    input: { title: string },
+  ): Promise<ConversationDto> {
+    const id = conversationId.trim();
+    const title = input.title.trim();
+
+    if (!id) {
+      throw new BadRequestError("conversationId is required");
+    }
+
+    if (!title) {
+      throw new BadRequestError("conversation title is required");
+    }
+
+    return this.conversationRepository.updateTitle(
+      id,
+      limitTitleLength(title, maxConversationTitleLength),
+    );
   }
 
   async appendMessage(input: {
@@ -81,4 +106,14 @@ export class ConversationService {
 
     return message;
   }
+}
+
+function limitTitleLength(title: string, maxLength: number): string {
+  const characters = Array.from(title);
+
+  if (characters.length <= maxLength) {
+    return title;
+  }
+
+  return `${characters.slice(0, maxLength).join("")}...`;
 }

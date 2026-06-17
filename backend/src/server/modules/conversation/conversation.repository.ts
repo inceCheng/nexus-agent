@@ -28,6 +28,7 @@ export interface ConversationRepository {
     modelId: string;
   }): Promise<ConversationDto>;
   updateTimestamp(id: string): Promise<void>;
+  updateTitle(id: string, title: string): Promise<ConversationDto>;
   delete(id: string): Promise<void>;
 }
 
