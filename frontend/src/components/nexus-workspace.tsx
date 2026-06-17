@@ -542,7 +542,9 @@ function WorkspaceShell() {
               const saved = data.message as ChatMessage;
               setMessages((current) =>
                 current.map((item) =>
-                  item.id === assistantMessageIdRef.current ? saved : item,
+                  item.id === assistantMessageIdRef.current
+                    ? mergeSavedAssistantMessage(item, saved)
+                    : item,
                 ),
               );
               void loadConversations();
@@ -1226,6 +1228,50 @@ function mergeMessageTrace(
       traces: nextTraces,
     },
   };
+}
+
+function mergeSavedAssistantMessage(
+  current: ChatMessage,
+  saved: ChatMessage,
+): ChatMessage {
+  const currentTraces = traceTimeline(current.metadataJson);
+  const savedTraces = traceTimeline(saved.metadataJson);
+
+  if (currentTraces.length === 0 && savedTraces.length === 0) {
+    return saved;
+  }
+
+  return {
+    ...saved,
+    metadataJson: {
+      ...(current.metadataJson ?? {}),
+      ...(saved.metadataJson ?? {}),
+      traces: mergeTraceLists(currentTraces, savedTraces),
+    },
+  };
+}
+
+function mergeTraceLists(
+  currentTraces: AgentTraceEntry[],
+  savedTraces: AgentTraceEntry[],
+): AgentTraceEntry[] {
+  if (currentTraces.length === 0) {
+    return savedTraces;
+  }
+
+  if (savedTraces.length === 0) {
+    return currentTraces;
+  }
+
+  const traceById = new Map(
+    currentTraces.map((trace) => [trace.id, trace] as const),
+  );
+
+  for (const trace of savedTraces) {
+    traceById.set(trace.id, trace);
+  }
+
+  return Array.from(traceById.values());
 }
 
 function traceTimeline(

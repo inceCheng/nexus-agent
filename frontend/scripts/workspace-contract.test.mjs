@@ -168,4 +168,17 @@ describe("NexusWorkspace behavior contract", () => {
       "updating messages should keep rendering streamed text and traces",
     );
   });
+
+  it("preserves streamed traces when the saved assistant message arrives", () => {
+    assert.match(
+      source,
+      /mergeSavedAssistantMessage\(item,\s*saved\)/,
+      "message.done should merge saved content with the in-flight trace metadata",
+    );
+    assert.doesNotMatch(
+      source,
+      /item\.id === assistantMessageIdRef\.current\s*\?\s*saved\s*:\s*item/,
+      "message.done should not replace the in-flight assistant message and drop traces",
+    );
+  });
 });
