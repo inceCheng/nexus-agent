@@ -583,18 +583,13 @@ function skillTitle(name: string): string {
   return name ? `Skill 调用 · ${name}` : "Skill 调用";
 }
 
-function previewValue(value: unknown, maxLength = 800): string | undefined {
+function previewValue(value: unknown, maxLength = 1200): string | undefined {
   if (value === undefined || value === null) {
     return undefined;
   }
 
-  const text =
-    typeof value === "string"
-      ? value
-      : JSON.stringify(value, (_key, nestedValue: unknown) =>
-          typeof nestedValue === "bigint" ? nestedValue.toString() : nestedValue,
-        );
-  const normalized = text.replace(/\s+/g, " ").trim();
+  const text = extractReadableTraceText(value) ?? stringifyTraceValue(value);
+  const normalized = normalizePreviewText(text);
 
   if (!normalized) {
     return undefined;
@@ -603,6 +598,188 @@ function previewValue(value: unknown, maxLength = 800): string | undefined {
   return normalized.length > maxLength
     ? `${normalized.slice(0, maxLength)}...`
     : normalized;
+}
+
+function extractReadableTraceText(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (typeof value === "string") {
+    const parsed = parseJsonString(value);
+
+    if (parsed !== undefined) {
+      return extractReadableTraceText(parsed) ?? normalizePreviewText(value);
+    }
+
+    return extractReadableTextFromSerializedJson(value) ?? value;
+  }
+
+  if (Array.isArray(value)) {
+    if (isLangChainIdArray(value)) {
+      return undefined;
+    }
+
+    const parts = value
+      .map((item) => extractReadableTraceText(item))
+      .filter((item): item is string => Boolean(item));
+
+    return parts.length > 0 ? parts.join("\n\n") : undefined;
+  }
+
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+
+    if (typeof record.description === "string") {
+      return record.description;
+    }
+
+    for (const key of [
+      "content",
+      "text",
+      "summary",
+      "result",
+      "output",
+      "message",
+    ]) {
+      const readable = extractReadableTraceText(record[key]);
+
+      if (readable) {
+        return readable;
+      }
+    }
+
+    for (const key of ["kwargs", "lc_kwargs", "data", "messages"]) {
+      const readable = extractReadableTraceText(record[key]);
+
+      if (readable) {
+        return readable;
+      }
+    }
+
+    return formatTraceObject(record);
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  return undefined;
+}
+
+function formatTraceObject(record: Record<string, unknown>): string | undefined {
+  const technicalKeys = new Set([
+    "lc",
+    "type",
+    "id",
+    "kwargs",
+    "lc_kwargs",
+    "subagent_type",
+    "additional_kwargs",
+    "response_metadata",
+    "usage_metadata",
+  ]);
+  const lines = Object.entries(record)
+    .filter(([key]) => !technicalKeys.has(key))
+    .map(([key, value]) => {
+      if (value === undefined || value === null) {
+        return undefined;
+      }
+
+      if (
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+      ) {
+        return `${traceFieldLabel(key)}：${value}`;
+      }
+
+      return undefined;
+    })
+    .filter((item): item is string => Boolean(item));
+
+  return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
+function traceFieldLabel(key: string): string {
+  const labels: Record<string, string> = {
+    args: "参数",
+    command: "命令",
+    description: "任务",
+    path: "路径",
+    query: "查询",
+    result: "结果",
+    status: "状态",
+  };
+
+  return labels[key] ?? key.replace(/_/g, " ");
+}
+
+function stringifyTraceValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return JSON.stringify(value, (_key, nestedValue: unknown) =>
+    typeof nestedValue === "bigint" ? nestedValue.toString() : nestedValue,
+  );
+}
+
+function normalizePreviewText(text: string): string {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function parseJsonString(value: string): unknown | undefined {
+  const trimmed = value.trim();
+
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return undefined;
+  }
+}
+
+function extractReadableTextFromSerializedJson(
+  value: string,
+): string | undefined {
+  for (const key of ["description", "text", "content", "summary", "result"]) {
+    const text = extractJsonStringField(value, key);
+
+    if (text) {
+      return text;
+    }
+  }
+
+  return undefined;
+}
+
+function extractJsonStringField(value: string, key: string): string | undefined {
+  const match = new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`).exec(
+    value,
+  );
+
+  if (!match?.[1]) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(`"${match[1]}"`) as string;
+  } catch {
+    return match[1];
+  }
+}
+
+function isLangChainIdArray(value: unknown[]): boolean {
+  return value.every((item) => typeof item === "string") &&
+    value.some((item) => item.includes("langchain"));
 }
 
 function errorMessage(error: unknown): string {

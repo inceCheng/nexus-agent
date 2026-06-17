@@ -181,4 +181,22 @@ describe("NexusWorkspace behavior contract", () => {
       "message.done should not replace the in-flight assistant message and drop traces",
     );
   });
+
+  it("formats trace previews as readable text instead of raw JSON blocks", () => {
+    assert.match(
+      source,
+      /formatTracePreviewValue\(value\)/,
+      "trace preview should normalize legacy JSON-like values before rendering",
+    );
+    assert.doesNotMatch(
+      source,
+      /<pre>\{value\}<\/pre>/,
+      "trace preview should not render raw serialized JSON strings directly",
+    );
+    assert.match(
+      source,
+      /extractReadableTraceText/,
+      "trace preview should extract readable text from tool and skill payloads",
+    );
+  });
 });

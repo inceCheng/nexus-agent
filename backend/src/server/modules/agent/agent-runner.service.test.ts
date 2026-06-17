@@ -169,6 +169,80 @@ describe("AgentRunnerService title generation", () => {
     });
   });
 
+  it("stores readable task tool previews instead of raw LangChain JSON", async () => {
+    let persistedMetadata: unknown;
+    const modelFactory = (() => ({})) as unknown as ChatModelFactory;
+    const agentFactory = (() => ({
+      streamEvents: async () => ({
+        messages: asyncIterable([
+          {
+            text: asyncIterable(["正文"]),
+          },
+        ]),
+        toolCalls: asyncIterable([
+          {
+            name: "task",
+            callId: "tool_task",
+            input: {
+              description: "搜索关于古诗《悯农》的详细资料。",
+              subagent_type: "general-purpose",
+            },
+            output: Promise.resolve({
+              lc: 1,
+              type: "constructor",
+              id: ["langchain_core", "messages", "ToolMessage"],
+              kwargs: {
+                content: [
+                  {
+                    type: "text",
+                    text: "# 《悯农》资料\n\n李绅是唐代诗人。",
+                  },
+                ],
+              },
+            }),
+            status: Promise.resolve("finished"),
+            error: Promise.resolve(undefined),
+          },
+        ]),
+        subagents: asyncIterable([]),
+      }),
+    })) as unknown as ConstructorParameters<typeof AgentRunnerService>[1];
+    const service = new AgentRunnerService(modelFactory, agentFactory);
+
+    const stream = service.createResponseStream({
+      providerId: "openai",
+      modelId: "gpt-5.2",
+      apiKey: "sk-test",
+      modelInfo: null,
+      messages: [],
+      onDone: async (content, metadataJson) => {
+        persistedMetadata = metadataJson;
+        return {
+          id: "msg_1",
+          conversationId: "conv_1",
+          role: "assistant",
+          content,
+          status: "success",
+          metadataJson,
+          createdAt: new Date("2026-06-17T00:00:00.000Z"),
+        };
+      },
+    });
+
+    await readStream(stream);
+
+    const taskTrace = metadataTrace(persistedMetadata, "tool_task");
+    expect(taskTrace).toMatchObject({
+      kind: "tool",
+      name: "task",
+      input: "搜索关于古诗《悯农》的详细资料。",
+      output: expect.stringContaining("# 《悯农》资料"),
+    });
+    expect(taskTrace?.input).not.toContain("subagent_type");
+    expect(taskTrace?.output).not.toContain("langchain_core");
+    expect(taskTrace?.output).not.toContain("ToolMessage");
+  });
+
   it("asks the active chat model to generate a concise conversation title", async () => {
     const capturedMessages: unknown[] = [];
     const modelFactory = (() => ({
@@ -217,6 +291,28 @@ function asyncIterable<T>(items: T[]): AsyncIterable<T> {
       }
     },
   };
+}
+
+function metadataTrace(
+  metadata: unknown,
+  id: string,
+): { input?: string; output?: string; kind?: string; name?: string } | undefined {
+  if (!metadata || typeof metadata !== "object") {
+    return undefined;
+  }
+
+  const traces = (metadata as { traces?: unknown }).traces;
+
+  if (!Array.isArray(traces)) {
+    return undefined;
+  }
+
+  return traces.find(
+    (trace): trace is { id: string; input?: string; output?: string; kind?: string; name?: string } =>
+      Boolean(trace) &&
+      typeof trace === "object" &&
+      (trace as { id?: unknown }).id === id,
+  );
 }
 
 async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {

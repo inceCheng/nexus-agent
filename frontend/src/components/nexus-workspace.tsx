@@ -1083,13 +1083,137 @@ function TracePreview({
   value: string;
   danger?: boolean;
 }) {
+  const displayValue = formatTracePreviewValue(value);
+
   return (
     <div className={styles.tracePreview}>
       <span className={danger ? styles.tracePreviewDanger : undefined}>
         {label}
       </span>
-      <pre>{value}</pre>
+      <div
+        className={`${styles.tracePreviewValue} ${
+          danger ? styles.tracePreviewDangerValue : ""
+        }`}
+      >
+        {displayValue}
+      </div>
     </div>
+  );
+}
+
+function formatTracePreviewValue(value: string): string {
+  return normalizeTracePreviewText(extractReadableTraceText(value) ?? value);
+}
+
+function extractReadableTraceText(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const parsed = parseTraceJson(value);
+
+    if (parsed !== undefined) {
+      return extractReadableTraceText(parsed);
+    }
+
+    return extractReadableTextFromSerializedJson(value) ?? value;
+  }
+
+  if (Array.isArray(value)) {
+    if (isLangChainIdArray(value)) {
+      return undefined;
+    }
+
+    const parts = value
+      .map((item) => extractReadableTraceText(item))
+      .filter((item): item is string => Boolean(item));
+
+    return parts.length > 0 ? parts.join("\n\n") : undefined;
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+
+    if (typeof record.description === "string") {
+      return record.description;
+    }
+
+    for (const key of [
+      "content",
+      "text",
+      "summary",
+      "result",
+      "output",
+      "message",
+      "kwargs",
+      "lc_kwargs",
+      "data",
+      "messages",
+    ]) {
+      const readable = extractReadableTraceText(record[key]);
+
+      if (readable) {
+        return readable;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function parseTraceJson(value: string): unknown | undefined {
+  const trimmed = value.trim();
+
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return undefined;
+  }
+}
+
+function extractReadableTextFromSerializedJson(
+  value: string,
+): string | undefined {
+  for (const key of ["description", "text", "content", "summary", "result"]) {
+    const text = extractJsonStringField(value, key);
+
+    if (text) {
+      return text;
+    }
+  }
+
+  return undefined;
+}
+
+function extractJsonStringField(value: string, key: string): string | undefined {
+  const match = new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`).exec(
+    value,
+  );
+
+  if (!match?.[1]) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(`"${match[1]}"`) as string;
+  } catch {
+    return match[1];
+  }
+}
+
+function normalizeTracePreviewText(value: string): string {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function isLangChainIdArray(value: unknown[]): boolean {
+  return (
+    value.every((item) => typeof item === "string") &&
+    value.some((item) => item.includes("langchain"))
   );
 }
 

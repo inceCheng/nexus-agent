@@ -493,20 +493,25 @@
   color: #b42318 !important;
 }
 
-.tracePreview pre {
+.tracePreviewValue {
   max-height: 140px;
   margin: 0;
   overflow: auto;
-  color: #2b3445;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
-  line-height: 16px;
+  color: #2f3a4d;
+  font-size: 12px;
+  line-height: 18px;
   white-space: pre-wrap;
   word-break: break-word;
-  background: rgba(20, 32, 54, 0.04);
-  border: 1px solid rgba(20, 32, 54, 0.08);
+  background: rgba(8, 117, 111, 0.055);
+  border: 1px solid rgba(8, 117, 111, 0.12);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 7px 9px;
+}
+
+.tracePreviewDangerValue {
+  color: #8f1f17;
+  background: rgba(180, 35, 24, 0.055);
+  border-color: rgba(180, 35, 24, 0.12);
 }
 
 .empty {
