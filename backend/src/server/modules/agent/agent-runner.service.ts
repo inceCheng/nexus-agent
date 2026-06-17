@@ -16,8 +16,29 @@ export interface StreamAgentInput {
   apiKey: string;
   modelInfo: SupportedModel | null;
   messages: MessageDto[];
-  onDone: (content: string) => Promise<MessageDto>;
+  onDone: (content: string, metadataJson?: AgentMessageMetadata) => Promise<MessageDto>;
   onAfterDone?: (content: string) => Promise<ConversationDto | null>;
+}
+
+export type AgentTraceKind = "reasoning" | "tool" | "skill";
+export type AgentTraceStatus = "running" | "success" | "error";
+
+export interface AgentTraceEntry {
+  id: string;
+  kind: AgentTraceKind;
+  title: string;
+  status: AgentTraceStatus;
+  name?: string;
+  content?: string;
+  input?: string;
+  output?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentMessageMetadata {
+  traces: AgentTraceEntry[];
 }
 
 export interface GenerateConversationTitleInput {
@@ -30,13 +51,18 @@ export interface GenerateConversationTitleInput {
 }
 
 export type ChatModelFactory = typeof createChatModel;
+export type DeepAgentFactory = typeof createDeepAgent;
 
 export class AgentRunnerService {
-  constructor(private readonly modelFactory: ChatModelFactory = createChatModel) {}
+  constructor(
+    private readonly modelFactory: ChatModelFactory = createChatModel,
+    private readonly agentFactory: DeepAgentFactory = createDeepAgent,
+  ) {}
 
   createResponseStream(input: StreamAgentInput): ReadableStream<Uint8Array> {
     const encoder = new TextEncoder();
     const modelFactory = this.modelFactory;
+    const agentFactory = this.agentFactory;
 
     return new ReadableStream({
       async start(controller) {
@@ -45,6 +71,7 @@ export class AgentRunnerService {
         };
 
         let assistantContent = "";
+        const traces = new Map<string, AgentTraceEntry>();
 
         try {
           const model = modelFactory({
@@ -55,7 +82,7 @@ export class AgentRunnerService {
             apiBaseUrl: input.modelInfo?.apiBaseUrl,
           });
 
-          const agent = createDeepAgent({
+          const agent = agentFactory({
             model,
             systemPrompt:
               "You are NexusAgent, a concise assistant. Answer directly and preserve useful structure.",
@@ -73,14 +100,40 @@ export class AgentRunnerService {
             { version: "v3" },
           );
 
-          for await (const message of run.messages) {
-            for await (const token of message.text) {
-              assistantContent += token;
-              send("message.delta", { content: token });
-            }
-          }
+          await Promise.all([
+            consumeMessageStreams(run.messages, {
+              appendContent: (token) => {
+                assistantContent += token;
+                send("message.delta", { content: token });
+              },
+              updateTrace: (event, trace) =>
+                updateTrace(traces, trace, (nextTrace) =>
+                  send(event, { trace: nextTrace }),
+                ),
+            }),
+            consumeToolCalls(run.toolCalls, {
+              kind: "tool",
+              startedEvent: "tool.started",
+              doneEvent: "tool.done",
+              updateTrace: (event, trace) =>
+                updateTrace(traces, trace, (nextTrace) =>
+                  send(event, { trace: nextTrace }),
+                ),
+            }),
+            consumeSubagents(run.subagents, {
+              updateTrace: (event, trace) =>
+                updateTrace(traces, trace, (nextTrace) =>
+                  send(event, { trace: nextTrace }),
+                ),
+            }),
+          ]);
 
-          const savedMessage = await input.onDone(assistantContent.trim());
+          const metadataJson =
+            traces.size > 0 ? { traces: Array.from(traces.values()) } : undefined;
+          const savedMessage = await input.onDone(
+            assistantContent.trim(),
+            metadataJson,
+          );
           send("message.done", { message: serializeMessage(savedMessage) });
 
           if (input.onAfterDone) {
@@ -197,4 +250,251 @@ export function normalizeGeneratedTitle(title: string): string | null {
   }
 
   return characters.slice(0, 36).join("");
+}
+
+type TraceUpdate = Omit<AgentTraceEntry, "createdAt" | "updatedAt"> &
+  Partial<Pick<AgentTraceEntry, "createdAt" | "updatedAt">>;
+
+type TraceUpdater = (event: string, trace: TraceUpdate) => void;
+
+async function consumeMessageStreams(
+  messages: AsyncIterable<{
+    text: AsyncIterable<string>;
+    reasoning?: AsyncIterable<string>;
+  }>,
+  options: {
+    appendContent: (token: string) => void;
+    updateTrace: TraceUpdater;
+  },
+) {
+  let reasoningIndex = 0;
+
+  for await (const message of messages) {
+    const reasoningId = `reasoning_${reasoningIndex++}`;
+    let reasoningContent = "";
+
+    await Promise.all([
+      (async () => {
+        for await (const token of message.text) {
+          options.appendContent(token);
+        }
+      })(),
+      (async () => {
+        if (!message.reasoning) {
+          return;
+        }
+
+        for await (const token of message.reasoning) {
+          reasoningContent += token;
+          options.updateTrace("reasoning.delta", {
+            id: reasoningId,
+            kind: "reasoning",
+            title: "正在思考",
+            status: "running",
+            content: reasoningContent,
+          });
+        }
+
+        if (reasoningContent) {
+          options.updateTrace("reasoning.done", {
+            id: reasoningId,
+            kind: "reasoning",
+            title: "思考",
+            status: "success",
+            content: reasoningContent,
+          });
+        }
+      })(),
+    ]);
+  }
+}
+
+async function consumeToolCalls(
+  toolCalls: AsyncIterable<{
+    name: string;
+    callId: string;
+    input: unknown;
+    output: Promise<unknown>;
+    status: Promise<string>;
+    error: Promise<string | undefined>;
+  }>,
+  options: {
+    kind: "tool";
+    startedEvent: "tool.started";
+    doneEvent: "tool.done";
+    updateTrace: TraceUpdater;
+  },
+) {
+  const pending: Promise<void>[] = [];
+
+  for await (const toolCall of toolCalls) {
+    const id = toolCall.callId || `tool_${pending.length}`;
+    const title = toolTitle(toolCall.name);
+
+    options.updateTrace(options.startedEvent, {
+      id,
+      kind: options.kind,
+      title,
+      name: toolCall.name,
+      status: "running",
+      input: previewValue(toolCall.input),
+    });
+
+    pending.push(
+      (async () => {
+        const [status, output, error] = await resolveToolResult(toolCall);
+
+        options.updateTrace(options.doneEvent, {
+          id,
+          kind: options.kind,
+          title,
+          name: toolCall.name,
+          status: status === "error" ? "error" : "success",
+          input: previewValue(toolCall.input),
+          output: previewValue(output),
+          error,
+        });
+      })(),
+    );
+  }
+
+  await Promise.all(pending);
+}
+
+async function consumeSubagents(
+  subagents: AsyncIterable<{
+    name: string;
+    taskInput: Promise<string>;
+    output: Promise<unknown>;
+  }>,
+  options: {
+    updateTrace: TraceUpdater;
+  },
+) {
+  const pending: Promise<void>[] = [];
+
+  for await (const subagent of subagents) {
+    const id = `skill_${subagent.name}_${pending.length}`;
+    const taskInput = await subagent.taskInput.catch((error: unknown) =>
+      errorMessage(error),
+    );
+
+    options.updateTrace("skill.started", {
+      id,
+      kind: "skill",
+      title: skillTitle(subagent.name),
+      name: subagent.name,
+      status: "running",
+      input: previewValue(taskInput),
+    });
+
+    pending.push(
+      (async () => {
+        try {
+          const output = await subagent.output;
+
+          options.updateTrace("skill.done", {
+            id,
+            kind: "skill",
+            title: skillTitle(subagent.name),
+            name: subagent.name,
+            status: "success",
+            input: previewValue(taskInput),
+            output: previewValue(output),
+          });
+        } catch (error) {
+          options.updateTrace("skill.done", {
+            id,
+            kind: "skill",
+            title: skillTitle(subagent.name),
+            name: subagent.name,
+            status: "error",
+            input: previewValue(taskInput),
+            error: errorMessage(error),
+          });
+        }
+      })(),
+    );
+  }
+
+  await Promise.all(pending);
+}
+
+function updateTrace(
+  traces: Map<string, AgentTraceEntry>,
+  trace: TraceUpdate,
+  onUpdated: (trace: AgentTraceEntry) => void,
+) {
+  const now = new Date().toISOString();
+  const current = traces.get(trace.id);
+  const nextTrace: AgentTraceEntry = {
+    ...current,
+    ...trace,
+    createdAt: trace.createdAt ?? current?.createdAt ?? now,
+    updatedAt: trace.updatedAt ?? now,
+  };
+
+  traces.set(nextTrace.id, nextTrace);
+  onUpdated(nextTrace);
+}
+
+async function resolveToolResult(toolCall: {
+  output: Promise<unknown>;
+  status: Promise<string>;
+  error: Promise<string | undefined>;
+}): Promise<[string, unknown, string | undefined]> {
+  const status = await toolCall.status.catch(() => "error");
+
+  if (status === "error") {
+    const error = await toolCall.error.catch(errorMessage);
+    return [status, undefined, error];
+  }
+
+  try {
+    return [status, await toolCall.output, undefined];
+  } catch (error) {
+    return ["error", undefined, errorMessage(error)];
+  }
+}
+
+function toolTitle(name: string): string {
+  if (name === "write_todos") {
+    return "更新计划";
+  }
+
+  if (name === "task") {
+    return "Skill 调用";
+  }
+
+  return "工具调用";
+}
+
+function skillTitle(name: string): string {
+  return name ? `Skill 调用 · ${name}` : "Skill 调用";
+}
+
+function previewValue(value: unknown, maxLength = 800): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const text =
+    typeof value === "string"
+      ? value
+      : JSON.stringify(value, (_key, nestedValue: unknown) =>
+          typeof nestedValue === "bigint" ? nestedValue.toString() : nestedValue,
+        );
+  const normalized = text.replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, maxLength)}...`
+    : normalized;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

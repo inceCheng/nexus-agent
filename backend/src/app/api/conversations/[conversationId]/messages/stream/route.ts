@@ -54,11 +54,12 @@ export async function POST(
       apiKey: parsed.data.apiKey,
       modelInfo,
       messages,
-      onDone: (content) =>
+      onDone: (content, metadataJson) =>
         conversationService.appendMessage({
           conversationId,
           role: "assistant",
           content: content || "(empty response)",
+          metadataJson,
         }),
       onAfterDone: async (assistantContent) => {
         if (!shouldAutoTitle) {

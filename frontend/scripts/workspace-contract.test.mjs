@@ -102,4 +102,47 @@ describe("NexusWorkspace behavior contract", () => {
       "chat title should support an inline rename state",
     );
   });
+
+  it("renders streamed agent reasoning, tool calls, and skill calls", () => {
+    assert.match(
+      source,
+      /metadataJson/,
+      "assistant messages should carry persisted trace metadata",
+    );
+    assert.match(
+      source,
+      /traceTimeline/,
+      "assistant bubbles should render a dedicated trace timeline",
+    );
+    assert.match(
+      source,
+      /reasoning\.delta/,
+      "streamed reasoning deltas should update the active trace",
+    );
+    assert.match(
+      source,
+      /tool\.started/,
+      "streamed tool start events should update the trace timeline",
+    );
+    assert.match(
+      source,
+      /skill\.started/,
+      "streamed skill start events should update the trace timeline",
+    );
+    assert.match(
+      source,
+      /正在思考/,
+      "active reasoning should use the expected concise Chinese label",
+    );
+    assert.match(
+      source,
+      /工具调用/,
+      "tool traces should be visible as tool-call rows",
+    );
+    assert.match(
+      source,
+      /Skill 调用/,
+      "skill traces should be visible as skill-call rows",
+    );
+  });
 });

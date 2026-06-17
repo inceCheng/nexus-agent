@@ -369,6 +369,137 @@
   padding-right: 4px;
 }
 
+.assistantMessage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.assistantText {
+  white-space: pre-wrap;
+}
+
+.traceTimeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: min(680px, 100%);
+  padding: 2px 0 4px;
+}
+
+.traceItem {
+  border-left: 2px solid rgba(36, 83, 212, 0.24);
+  padding-left: 10px;
+}
+
+.traceItem[open] {
+  border-left-color: rgba(8, 117, 111, 0.5);
+}
+
+.traceSummary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 24px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  list-style: none;
+}
+
+.traceSummary::-webkit-details-marker {
+  display: none;
+}
+
+.traceIcon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: var(--teal);
+}
+
+.traceTitle {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.traceStatusRunning,
+.traceStatusSuccess,
+.traceStatusError {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  font-size: 11px;
+  line-height: 17px;
+  border-radius: 5px;
+}
+
+.traceStatusRunning {
+  color: #875500;
+  background: rgba(250, 173, 20, 0.13);
+}
+
+.traceStatusSuccess {
+  color: #08756f;
+  background: rgba(8, 117, 111, 0.1);
+}
+
+.traceStatusError {
+  color: #b42318;
+  background: rgba(180, 35, 24, 0.1);
+}
+
+.traceBody {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 8px 25px;
+}
+
+.traceText {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: pre-wrap;
+}
+
+.tracePreview {
+  display: grid;
+  gap: 3px;
+}
+
+.tracePreview span {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.tracePreviewDanger {
+  color: #b42318 !important;
+}
+
+.tracePreview pre {
+  max-height: 140px;
+  margin: 0;
+  overflow: auto;
+  color: #2b3445;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(20, 32, 54, 0.04);
+  border: 1px solid rgba(20, 32, 54, 0.08);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
 .empty {
   display: grid;
   place-items: center;

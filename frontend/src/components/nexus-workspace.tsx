@@ -1,14 +1,18 @@
 "use client";
 
 import {
+  BranchesOutlined,
+  BulbOutlined,
   CheckOutlined,
   CloseOutlined,
   DeleteOutlined,
   EditOutlined,
   KeyOutlined,
+  LoadingOutlined,
   ReloadOutlined,
   RobotOutlined,
   SettingOutlined,
+  ToolOutlined,
   UserOutlined,
 } from "@ant-design/icons";
 import { Bubble, Conversations, Sender, XProvider } from "@ant-design/x";
@@ -68,7 +72,29 @@ type ChatMessage = {
   role: "user" | "assistant" | "system";
   content: string;
   status: "local" | "loading" | "updating" | "success" | "error" | "abort";
+  metadataJson?: AgentMessageMetadata | null;
   createdAt: string;
+};
+
+type AgentTraceKind = "reasoning" | "tool" | "skill";
+type AgentTraceStatus = "running" | "success" | "error";
+
+type AgentTraceEntry = {
+  id: string;
+  kind: AgentTraceKind;
+  title: string;
+  status: AgentTraceStatus;
+  name?: string;
+  content?: string;
+  input?: string;
+  output?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type AgentMessageMetadata = {
+  traces?: AgentTraceEntry[];
 };
 
 type BubbleItem = NonNullable<
@@ -452,6 +478,7 @@ function WorkspaceShell() {
           role: "assistant",
           content: "",
           status: "updating",
+          metadataJson: { traces: [] },
           createdAt: new Date().toISOString(),
         };
 
@@ -495,6 +522,20 @@ function WorkspaceShell() {
                     : item,
                 ),
               );
+            }
+
+            if (isTraceStreamEvent(event)) {
+              const trace = data.trace as AgentTraceEntry | undefined;
+
+              if (trace) {
+                setMessages((current) =>
+                  current.map((item) =>
+                    item.id === assistantMessageIdRef.current
+                      ? mergeMessageTrace(item, trace)
+                      : item,
+                  ),
+                );
+              }
             }
 
             if (event === "message.done") {
@@ -646,7 +687,16 @@ function WorkspaceShell() {
   const bubbleItems: BubbleItem[] = messages.map((item) => ({
     key: item.id,
     role: item.role === "assistant" ? "assistant" : "user",
-    content: item.content,
+    content:
+      item.role === "assistant" ? (
+        <AssistantMessageContent
+          content={item.content}
+          traces={traceTimeline(item.metadataJson)}
+          streaming={item.status === "updating"}
+        />
+      ) : (
+        item.content
+      ),
     status: item.status,
     streaming: item.status === "updating",
     loading: item.status === "loading" || item.status === "updating",
@@ -958,6 +1008,88 @@ function WorkspaceShell() {
   );
 }
 
+function AssistantMessageContent({
+  content,
+  traces,
+  streaming,
+}: {
+  content: string;
+  traces: AgentTraceEntry[];
+  streaming: boolean;
+}) {
+  return (
+    <div className={styles.assistantMessage}>
+      <TraceTimeline traces={traces} streaming={streaming} />
+      {content ? <div className={styles.assistantText}>{content}</div> : null}
+    </div>
+  );
+}
+
+function TraceTimeline({
+  traces,
+  streaming,
+}: {
+  traces: AgentTraceEntry[];
+  streaming: boolean;
+}) {
+  if (traces.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={styles.traceTimeline}>
+      {traces.map((trace) => (
+        <details
+          key={trace.id}
+          className={styles.traceItem}
+          open={streaming || trace.status === "running"}
+        >
+          <summary className={styles.traceSummary}>
+            <span className={styles.traceIcon}>{traceIcon(trace)}</span>
+            <span className={styles.traceTitle}>{traceTitle(trace)}</span>
+            <span className={traceStatusClass(trace.status)}>
+              {traceStatusLabel(trace.status)}
+            </span>
+          </summary>
+          <div className={styles.traceBody}>
+            {trace.content ? (
+              <p className={styles.traceText}>{trace.content}</p>
+            ) : null}
+            {trace.input ? (
+              <TracePreview label="输入" value={trace.input} />
+            ) : null}
+            {trace.output ? (
+              <TracePreview label="输出" value={trace.output} />
+            ) : null}
+            {trace.error ? (
+              <TracePreview label="错误" value={trace.error} danger />
+            ) : null}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
+function TracePreview({
+  label,
+  value,
+  danger,
+}: {
+  label: string;
+  value: string;
+  danger?: boolean;
+}) {
+  return (
+    <div className={styles.tracePreview}>
+      <span className={danger ? styles.tracePreviewDanger : undefined}>
+        {label}
+      </span>
+      <pre>{value}</pre>
+    </div>
+  );
+}
+
 async function apiGet<T>(url: string): Promise<T> {
   const response = await fetch(apiUrl(url));
   return parseJsonResponse<T>(response);
@@ -1064,6 +1196,115 @@ function parseSseFrame(frame: string) {
     event,
     data: JSON.parse(dataLine) as Record<string, unknown>,
   };
+}
+
+function isTraceStreamEvent(event: string): boolean {
+  return (
+    event === "reasoning.delta" ||
+    event === "reasoning.done" ||
+    event === "tool.started" ||
+    event === "tool.done" ||
+    event === "skill.started" ||
+    event === "skill.done"
+  );
+}
+
+function mergeMessageTrace(
+  message: ChatMessage,
+  trace: AgentTraceEntry,
+): ChatMessage {
+  const traces = traceTimeline(message.metadataJson);
+  const nextTraces = traces.some((item) => item.id === trace.id)
+    ? traces.map((item) => (item.id === trace.id ? { ...item, ...trace } : item))
+    : [...traces, trace];
+
+  return {
+    ...message,
+    metadataJson: {
+      ...(message.metadataJson ?? {}),
+      traces: nextTraces,
+    },
+  };
+}
+
+function traceTimeline(
+  metadataJson: AgentMessageMetadata | null | undefined,
+): AgentTraceEntry[] {
+  if (!metadataJson?.traces || !Array.isArray(metadataJson.traces)) {
+    return [];
+  }
+
+  return metadataJson.traces.filter(isAgentTraceEntry);
+}
+
+function isAgentTraceEntry(trace: unknown): trace is AgentTraceEntry {
+  if (!trace || typeof trace !== "object") {
+    return false;
+  }
+
+  const candidate = trace as AgentTraceEntry;
+
+  return (
+    typeof candidate.id === "string" &&
+    (candidate.kind === "reasoning" ||
+      candidate.kind === "tool" ||
+      candidate.kind === "skill") &&
+    (candidate.status === "running" ||
+      candidate.status === "success" ||
+      candidate.status === "error")
+  );
+}
+
+function traceIcon(trace: AgentTraceEntry) {
+  if (trace.status === "running") {
+    return <LoadingOutlined spin />;
+  }
+
+  if (trace.kind === "reasoning") {
+    return <BulbOutlined />;
+  }
+
+  if (trace.kind === "skill") {
+    return <BranchesOutlined />;
+  }
+
+  return <ToolOutlined />;
+}
+
+function traceTitle(trace: AgentTraceEntry): string {
+  if (trace.kind === "reasoning") {
+    return trace.status === "running" ? "正在思考" : "思考";
+  }
+
+  if (trace.kind === "skill") {
+    return trace.name ? `Skill 调用 · ${trace.name}` : "Skill 调用";
+  }
+
+  return trace.name ? `工具调用 · ${trace.name}` : "工具调用";
+}
+
+function traceStatusLabel(status: AgentTraceStatus): string {
+  if (status === "running") {
+    return "进行中";
+  }
+
+  if (status === "error") {
+    return "失败";
+  }
+
+  return "完成";
+}
+
+function traceStatusClass(status: AgentTraceStatus): string {
+  if (status === "running") {
+    return styles.traceStatusRunning;
+  }
+
+  if (status === "error") {
+    return styles.traceStatusError;
+  }
+
+  return styles.traceStatusSuccess;
 }
 
 function groupConversation(updatedAt: string): string {
